@@ -7,3 +7,4 @@ vendor/
 
 # Other
 .DS_Store
+src/.token

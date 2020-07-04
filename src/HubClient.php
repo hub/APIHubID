@@ -137,6 +137,7 @@ class HubClient extends Service
     {
         self::$token = null;
         setcookie(self::COOKIE_TOKEN_NAME, null, null, '/');
+        @unlink(__DIR__ . '/token');
     }
 
     /**
@@ -206,6 +207,7 @@ class HubClient extends Service
     {
         self::$token = $token;
         setcookie(self::COOKIE_TOKEN_NAME, self::$token, time() + 3600 * 24 * 365, '/');
+        $this->setAccessToken($token);
 
         return $this;
     }

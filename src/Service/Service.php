@@ -22,6 +22,11 @@ class Service
     const API_BASE_PATH = 'https://id.hubculture.com';
 
     /**
+     * Absolute path to the local access token storage
+     */
+    const LOCAL_TOKEN_STORAGE = __DIR__ . '/../.token';
+
+    /**
      * @var array runtime configuration containing the credentials etc.
      */
     protected $config;
@@ -55,10 +60,15 @@ class Service
             throw new InvalidArgumentException('fields: private_key, public_key are required');
         }
 
+        if (!is_readable(self::LOCAL_TOKEN_STORAGE)) {
+            @touch(self::LOCAL_TOKEN_STORAGE);
+        }
+
         $this->config = array_merge(
             array(
                 'base_path' => self::API_BASE_PATH,
                 'verify' => true,
+                'token' => '', // token is set via the client itself on the fly
 
                 // this will write any request to a log file (location: /tmp/hubid-api-client.log)
                 'debug' => false,
@@ -91,17 +101,33 @@ class Service
      */
     public function setAccessToken($accessToken)
     {
-        $this->config['token'] = $accessToken;
+        if (!empty($accessToken)) {
+            $this->log("setting access_token : '{$accessToken}'");
+            $this->config['token'] = $accessToken;
+            @file_put_contents(self::LOCAL_TOKEN_STORAGE, $accessToken);
+        }
     }
 
     /**
      * Returns the currently set and used access token.
      *
-     * @return string currently set and used access token
+     * @return string|null currently set and used access token
      */
     public function getAccessToken()
     {
-        return $this->config['token'];
+        $accessToken = $this->config['token'];
+        if (!empty($accessToken)) {
+            $this->log("retrieving access_token from memory");
+            return $accessToken;
+        }
+
+        $accessToken = @file_get_contents(self::LOCAL_TOKEN_STORAGE);
+        if (!empty($accessToken)) {
+            $this->log("retrieving access_token from storage");
+            return $accessToken;
+        }
+
+        return null;
     }
 
     /**
@@ -326,8 +352,9 @@ class Service
         );
 
         // inject authorization token if available
-        if (!empty($this->config['token'])) {
-            $headers['Authorization'] = sprintf('Bearer %s', $this->config['token']);
+        $accessToken = $this->getAccessToken();
+        if (!empty($accessToken)) {
+            $headers['Authorization'] = sprintf('Bearer %s', $accessToken);
         }
 
         return $headers;
@@ -380,7 +407,27 @@ class Service
         }
 
         $string = sprintf($string, strtoupper($method), $this->config['base_path'] . $api, $headerString, $dataString);
-        file_put_contents($this->config['log_file'], $string . PHP_EOL, FILE_APPEND);
+        $this->log($string);
+    }
+
+    /**
+     * This logs any given string message to the sdk client default log file and to any application provided logger.
+     *
+     * @param string $string The message to log
+     */
+    protected function log($string)
+    {
+        if (!$this->config['debug']) {
+            return;
+        }
+
+        // log to the sdk client default log file
+        if (!empty($this->config['log_file'])) {
+            $now = date('Y-m-d H:i:s');
+            file_put_contents($this->config['log_file'], "[{$now}] [DEBUG] {$string}" . PHP_EOL, FILE_APPEND);
+        }
+
+        // also log to the application provided logger
         if (!is_null($this->logger)) {
             $this->logger->debug(HubClient::COOKIE_TOKEN_NAME . ' : ' . $string);
         }
